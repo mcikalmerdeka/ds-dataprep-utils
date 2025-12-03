@@ -3,13 +3,14 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import math
+from typing import List, Optional, Tuple, Any
 
 # ╔══════════════════════════════════════════════════════════════════════════════════╗
-# ║                       Functions for Data Visualization                          ║
+# ║                       Functions for Data Visualization                           ║
 # ╚══════════════════════════════════════════════════════════════════════════════════╝
 
 ## Hisplot and kdeplot analysis
-def plot_dynamic_hisplots_kdeplots(df, col_series, plot_type='histplot', ncols=6, figsize=(26, 18), hue=None, multiple='layer', fill=None):
+def plot_dynamic_hisplots_kdeplots(df: pd.DataFrame, col_series: List[str], plot_type: str = 'histplot', ncols: int = 6, figsize: Tuple[int, int] = (26, 18), hue: Optional[str] = None, multiple: str = 'layer', fill: Optional[bool] = None) -> None:
     """
     Creates a dynamic grid of histogram plots (with KDE) or KDE plots for multiple numerical columns.
 
@@ -17,7 +18,7 @@ def plot_dynamic_hisplots_kdeplots(df, col_series, plot_type='histplot', ncols=6
     ----------
     df : pandas.DataFrame
         The DataFrame containing the data to plot.
-    col_series : list of str
+    col_series : List[str]
         List of column names to include in the plots.
     plot_type : str, optional, default='histplot'
         Type of plot to generate. Options are:
@@ -25,14 +26,16 @@ def plot_dynamic_hisplots_kdeplots(df, col_series, plot_type='histplot', ncols=6
         - 'kdeplot': Kernel Density Estimation plot
     ncols : int, optional, default=6
         Number of columns in the subplot grid. Adjust this value to change grid width.
-    figsize : tuple, optional, default=(26, 18)
+    figsize : Tuple[int, int], optional, default=(26, 18)
         Size of the figure to control plot dimensions.
-    hue : str, optional, default=None
+    hue : Optional[str], optional, default=None
         Column name to use for color encoding. Creates separate distributions for each category.
     multiple : str, optional, default='layer'
         How to display multiple distributions. Options are:
         - 'layer': Distributions are overlaid
         - 'dodge': Distributions are placed side by side
+    fill : Optional[bool], optional, default=None
+        Whether to fill the area under the KDE curve.
 
     Returns:
     -------
@@ -94,7 +97,7 @@ def plot_dynamic_hisplots_kdeplots(df, col_series, plot_type='histplot', ncols=6
     plt.show()
 
 # Boxplot and violinplot analysis
-def plot_dynamic_boxplots_violinplots(df, col_series, plot_type='boxplot', ncols=6, figsize=(26, 18), orientation='v', hue=None):
+def plot_dynamic_boxplots_violinplots(df: pd.DataFrame, col_series: List[str], plot_type: str = 'boxplot', ncols: int = 6, figsize: Tuple[int, int] = (26, 18), orientation: str = 'v', hue: Optional[str] = None) -> None:
     """
     Creates a dynamic grid of either boxplots or violin plots for multiple numerical columns.
 
@@ -102,17 +105,17 @@ def plot_dynamic_boxplots_violinplots(df, col_series, plot_type='boxplot', ncols
     ----------
     df : pandas.DataFrame
         The DataFrame containing the data to plot.
-    col_series : list of str
+    col_series : List[str]
         List of column names to include in the plots.
     plot_type : str, optional, default='boxplot'
         Type of plot to generate. Options are 'boxplot' or 'violinplot'.
     ncols : int, optional, default=6
         Number of columns in the subplot grid. Adjust this value to change grid width.
-    figsize : tuple, optional, default=(26, 18)
+    figsize : Tuple[int, int], optional, default=(26, 18)
         Size of the figure to control plot dimensions.
     orientation : str, optional, default='v'
         Orientation of the plots. Use 'v' for vertical and 'h' for horizontal.
-    hue : str, optional, default=None
+    hue : Optional[str], optional, default=None
         Column name to use for color encoding. Creates separate plots for each category.
 
     Returns:
@@ -174,7 +177,7 @@ def plot_dynamic_boxplots_violinplots(df, col_series, plot_type='boxplot', ncols
     plt.show()
 
 ## Countplot analysis
-def plot_dynamic_countplot(df, col_series, ncols=6, figsize=(26, 18), stat='count', hue=None, order=None):
+def plot_dynamic_countplot(df: pd.DataFrame, col_series: List[str], ncols: int = 6, figsize: Tuple[int, int] = (26, 18), stat: str = 'count', hue: Optional[str] = None, order: Optional[List[Any]] = None) -> None:
     """
     Plots a dynamic grid of countplot for a list of categorical columns from a DataFrame.
 
@@ -182,17 +185,17 @@ def plot_dynamic_countplot(df, col_series, ncols=6, figsize=(26, 18), stat='coun
     ----------
     df : pandas.DataFrame
         The DataFrame containing the data to plot.
-    col_series : list of str
+    col_series : List[str]
         List of column names to include in the countplots.
     ncols : int, optional, default=6
         Number of columns in the subplot grid. Adjust this value to change grid width.
-    figsize : tuple, optional, default=(26, 18)
+    figsize : Tuple[int, int], optional, default=(26, 18)
         Size of the figure to control plot dimensions.
     stat : str, optional, default='count'
         The statistic to compute for the bars
-    hue : str, optional, default=None
+    hue : Optional[str], optional, default=None
         Column name to use for color encoding
-    order : list, optional, default=None
+    order : Optional[List[Any]], optional, default=None
         Specific ordering for the categorical variables
 
     Returns:
@@ -282,7 +285,7 @@ def plot_dynamic_countplot(df, col_series, ncols=6, figsize=(26, 18), stat='coun
     plt.show()
 
 ## Correlation heatmap analysis on numerical features and target
-def plot_correlation_heatmap(df, col_series, corr_method='pearson', figsize=(8, 6), cmap='coolwarm'):
+def plot_correlation_heatmap(df: pd.DataFrame, col_series: List[str], corr_method: str = 'pearson', figsize: Tuple[int, int] = (8, 6), cmap: str = 'coolwarm') -> None:
     """
     Plots a correlation heatmap for the specified columns in a dataframe.
 
@@ -290,11 +293,11 @@ def plot_correlation_heatmap(df, col_series, corr_method='pearson', figsize=(8, 
     ----------
     df : pd.DataFrame
         The input dataframe containing the data.
-    col_series : list
+    col_series : List[str]
         List of column names to include in the correlation matrix.
     corr_method : str 
         Correlation method ('pearson', 'spearman', or 'kendall'). Default is 'pearson'.
-    figsize : tuple
+    figsize : Tuple[int, int]
         Size of the heatmap figure (width, height). Default is (8, 6).
     cmap : str
         Color map for the heatmap. Default is 'coolwarm'.

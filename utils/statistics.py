@@ -2,21 +2,22 @@ import numpy as np
 import pandas as pd
 from scipy.stats import skew, kurtosis
 from datetime import datetime
+from typing import List, Optional
 
 # ╔══════════════════════════════════════════════════════════════════════════════════╗
 # ║                       Functions for Statistical Summary                          ║
 # ╚══════════════════════════════════════════════════════════════════════════════════╝
 
 ## Describe numerical columns
-def describe_numerical_combined(data, col_series, hue=None):
+def describe_numerical_combined(data: pd.DataFrame, col_series: List[str], hue: Optional[str] = None) -> pd.DataFrame:
     """
     Generate descriptive statistics for numerical columns in a dataframe,
     both overall and optionally grouped by a categorical variable.
     
     Parameters:
     data (pd.DataFrame): The dataframe containing the numerical columns
-    col_series (list): The list of numerical columns to describe
-    hue (str, optional): The name of the categorical column to group by
+    col_series (List[str]): The list of numerical columns to describe
+    hue (Optional[str], optional): The name of the categorical column to group by
     
     Returns:
     pd.DataFrame: A dataframe containing descriptive statistics, with hue classes if specified
@@ -104,15 +105,15 @@ def describe_numerical_combined(data, col_series, hue=None):
     return final_summary
 
 ## Describe categorical columns
-def describe_categorical_combined(data, col_series, hue=None):
+def describe_categorical_combined(data: pd.DataFrame, col_series: List[str], hue: Optional[str] = None) -> pd.DataFrame:
     """
     Generate descriptive statistics for categorical columns in a dataframe,
     both overall and optionally grouped by a categorical variable.
     
     Parameters:
     data (pd.DataFrame): The dataframe containing the categorical columns
-    col_series (list): The list of categorical columns to describe
-    hue (str, optional): The name of the categorical column to group by
+    col_series (List[str]): The list of categorical columns to describe
+    hue (Optional[str], optional): The name of the categorical column to group by
     
     Returns:
     pd.DataFrame: A dataframe containing descriptive statistics, with hue classes if specified
@@ -199,16 +200,16 @@ def describe_categorical_combined(data, col_series, hue=None):
     return final_summary
 
 ## Describe date columns
-def describe_date_columns(df, date_columns):
+def describe_date_columns(df: pd.DataFrame, date_columns: List[str]) -> pd.DataFrame:
     """
     Comprehensive analysis of date columns including various temporal features
     
     Parameters:
-    df (pandas.DataFrame): DataFrame containing date columns
-    date_columns (list): List of column names containing dates
+    df (pd.DataFrame): DataFrame containing date columns
+    date_columns (List[str]): List of column names containing dates
     
     Returns:
-    pandas.DataFrame: dates_summary statistics and temporal features for each date column
+    pd.DataFrame: dates_summary statistics and temporal features for each date column
     
     Examples:
     ---------
@@ -259,7 +260,7 @@ def describe_date_columns(df, date_columns):
     return dates_summary
 
 ## Distribution type analysis
-def identify_distribution_types(df, col_series, uniform_cols=None, multimodal_cols=None):
+def identify_distribution_types(df: pd.DataFrame, col_series: List[str], uniform_cols: Optional[List[str]] = None, multimodal_cols: Optional[List[str]] = None) -> pd.DataFrame:
     """
     Identifies and categorizes the distribution type of each numerical column in the DataFrame based on skewness and kurtosis.
     Allows manual specification of columns suspected to be uniform or bimodal/multimodal.
@@ -267,11 +268,11 @@ def identify_distribution_types(df, col_series, uniform_cols=None, multimodal_co
     Parameters:
     df : pd.DataFrame
         The input DataFrame containing the data.
-    col_series : list of str
+    col_series : List[str]
         List of column names to analyze for distribution type.
-    uniform_cols : list of str, optional
+    uniform_cols : Optional[List[str]], optional
         List of column names suspected to be uniform. Default is None.
-    multimodal_cols : list of str, optional
+    multimodal_cols : Optional[List[str]], optional
         List of column names suspected to be bimodal/multimodal. Default is None.
 
     Returns:

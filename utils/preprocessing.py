@@ -4,13 +4,14 @@ from scipy import stats
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, PowerTransformer, QuantileTransformer, OneHotEncoder, OrdinalEncoder
 from sklearn.impute import KNNImputer
 from sklearn.compose import ColumnTransformer
+from typing import List, Dict, Union, Optional, Any, Tuple
 
 # ╔══════════════════════════════════════════════════════════════════════════════════╗
 # ║                       Functions for Data Pre-Processing                          ║
 # ╚══════════════════════════════════════════════════════════════════════════════════╝
 
 ## Checking basic data information
-def check_data_information(data, cols):
+def check_data_information(data: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
     """
     Check basic data information including data types, null values, duplicates, and unique values.
     
@@ -18,7 +19,7 @@ def check_data_information(data, cols):
     -----------
     data : pd.DataFrame
         The DataFrame to analyze
-    cols : list
+    cols : List[str]
         List of column names to check
     
     Returns:
@@ -64,7 +65,7 @@ def check_data_information(data, cols):
     return desc_df
 
 ## Drop columns function
-def drop_columns(data, columns):
+def drop_columns(data: pd.DataFrame, columns: Union[str, List[str]]) -> pd.DataFrame:
     """
     Drop specified columns from a DataFrame.
     
@@ -72,7 +73,7 @@ def drop_columns(data, columns):
     -----------
     data : pd.DataFrame
         The DataFrame from which to drop columns
-    columns : str or list of str
+    columns : Union[str, List[str]]
         Column name(s) to drop. Can be a single column name or a list of column names.
     
     Returns:
@@ -95,7 +96,7 @@ def drop_columns(data, columns):
     return data.drop(columns=columns, errors='ignore')
 
 ## Change binary column data type
-def change_binary_dtype(data, column, target_type='categorical'):
+def change_binary_dtype(data: pd.DataFrame, column: str, target_type: str = 'categorical') -> pd.Series:
     """
     Convert binary columns between numerical (0/1) and categorical (No/Yes) representations.
     
@@ -133,7 +134,7 @@ def change_binary_dtype(data, column, target_type='categorical'):
         raise ValueError("target_type must be either 'categorical' or 'numerical'")
 
 ## Handle missing values function
-def handle_missing_values(data, columns, strategy='median', imputer=None, n_neighbors=5):
+def handle_missing_values(data: pd.DataFrame, columns: List[str], strategy: str = 'median', imputer: Optional[Any] = None, n_neighbors: int = 5) -> Tuple[pd.DataFrame, Optional[Any]]:
     """
     Handle missing values using various imputation strategies.
     
@@ -141,7 +142,7 @@ def handle_missing_values(data, columns, strategy='median', imputer=None, n_neig
     -----------
     data : pd.DataFrame
         The dataframe to process
-    columns : list
+    columns : List[str]
         List of column names to impute
     strategy : str, default='median'
         Imputation method:
@@ -149,7 +150,7 @@ def handle_missing_values(data, columns, strategy='median', imputer=None, n_neig
         - 'ffill', 'bfill': Forward/backward fill
         - 'knn': K-Nearest Neighbors imputation (advanced)
         - 'remove': Drop rows with missing values
-    imputer : sklearn imputer object, default=None
+    imputer : Optional[Any], default=None
         Pre-fitted imputer for test data (for 'knn')
     n_neighbors : int, default=5
         Number of neighbors for KNN imputation
@@ -158,7 +159,7 @@ def handle_missing_values(data, columns, strategy='median', imputer=None, n_neig
     --------
     df_imputed : pd.DataFrame
         Dataframe with imputed values
-    imputer : sklearn imputer object or None
+    imputer : Optional[Any]
         The fitted imputer (for 'knn' or 'iterative' methods)
     
     Example:
@@ -219,7 +220,7 @@ def handle_missing_values(data, columns, strategy='median', imputer=None, n_neig
         raise ValueError(f"Unknown strategy: {strategy}. Use 'median', 'mean', 'mode', 'ffill', 'bfill', 'knn', or 'remove'")
 
 ## Handle and detect outliers function
-def filter_outliers(data, columns, method='iqr', threshold=1.5, detect_only=False, return_mask=False, verbose=True):
+def filter_outliers(data: pd.DataFrame, columns: List[str], method: str = 'iqr', threshold: float = 1.5, detect_only: bool = False, return_mask: bool = False, verbose: bool = True) -> Union[pd.DataFrame, Tuple[pd.DataFrame, np.ndarray]]:
     """
     Unified function to detect and/or filter outliers using IQR or Z-score method.
     
@@ -227,7 +228,7 @@ def filter_outliers(data, columns, method='iqr', threshold=1.5, detect_only=Fals
     -----------
     data : pd.DataFrame
         The dataframe to process
-    columns : list
+    columns : List[str]
         List of column names to check for outliers
     method : str, default='iqr'
         Method to detect outliers: 'iqr' or 'zscore'
@@ -348,8 +349,7 @@ def filter_outliers(data, columns, method='iqr', threshold=1.5, detect_only=Fals
     return data[filtered_entries]
 
 ## Feature scaling function
-def feature_scaling(data, scaling_config=None, columns=None, method='standard', 
-                   scaler=None, apply_log=False):
+def feature_scaling(data: pd.DataFrame, scaling_config: Optional[Dict[str, Any]] = None, columns: Optional[List[str]] = None, method: str = 'standard', scaler: Optional[Union[Dict[str, Any], Any]] = None, apply_log: bool = False) -> Tuple[pd.DataFrame, Union[Dict[str, Any], Any]]:
     """
     General feature scaling function with flexible options.
     Supports applying different scaling methods to different columns.
@@ -383,7 +383,7 @@ def feature_scaling(data, scaling_config=None, columns=None, method='standard',
     -----------
     data : pd.DataFrame
         The dataframe to scale
-    scaling_config : dict, optional
+    scaling_config : Optional[Dict[str, Any]], optional
         Dictionary mapping scaling methods to column lists and options.
         Format: {
             'standard': {'columns': ['col1', 'col2'], 'apply_log': False},
@@ -393,11 +393,11 @@ def feature_scaling(data, scaling_config=None, columns=None, method='standard',
             'quantile': {'columns': ['col8'], 'n_quantiles': 1000, 'output_distribution': 'normal'}
         }
         If provided, overrides 'columns', 'method', and 'apply_log' parameters.
-    columns : list, optional
+    columns : Optional[List[str]], optional
         List of column names to scale (used when scaling_config is None)
     method : str, default='standard'
         Scaling method: 'standard', 'minmax', 'robust', 'power', or 'quantile' (used when scaling_config is None)
-    scaler : dict or sklearn scaler object, default=None
+    scaler : Optional[Union[Dict[str, Any], Any]], default=None
         For single method: sklearn scaler object
         For multiple methods: dict mapping method names to fitted scaler objects
         If None, fits new scaler(s) (for training data)
@@ -408,7 +408,7 @@ def feature_scaling(data, scaling_config=None, columns=None, method='standard',
     --------
     df_scaled : pd.DataFrame
         Dataframe with scaled features
-    scaler : dict or sklearn scaler object
+    scaler : Union[Dict[str, Any], Any]
         For single method: the fitted scaler
         For multiple methods: dict of fitted scalers by method name
     
@@ -579,9 +579,9 @@ def feature_scaling(data, scaling_config=None, columns=None, method='standard',
         return df_scaled, scaler
 
 ## Feature encoding function
-def feature_encoding(data, ordinal_columns=None, nominal_columns=None, 
-                     ordinal_categories=None, drop_first=True, 
-                     preserve_dtypes=True, handle_unknown='error'):
+def feature_encoding(data: pd.DataFrame, ordinal_columns: Optional[List[str]] = None, nominal_columns: Optional[List[str]] = None, 
+                     ordinal_categories: Optional[Dict[str, List[Any]]] = None, drop_first: bool = True, 
+                     preserve_dtypes: bool = True, handle_unknown: str = 'error') -> pd.DataFrame:
     """
     General feature encoding function using sklearn ColumnTransformer.
     
@@ -589,11 +589,11 @@ def feature_encoding(data, ordinal_columns=None, nominal_columns=None,
     -----------
     data : pd.DataFrame
         The dataframe to encode
-    ordinal_columns : list, optional
+    ordinal_columns : Optional[List[str]], optional
         List of column names for ordinal encoding
-    nominal_columns : list, optional
+    nominal_columns : Optional[List[str]], optional
         List of column names for one-hot encoding
-    ordinal_categories : dict, optional
+    ordinal_categories : Optional[Dict[str, List[Any]]], optional
         Dictionary mapping ordinal column names to their category order lists
         Example: {'Education': ['SMA', 'D3', 'S1', 'S2', 'S3']}
     drop_first : bool, default=True

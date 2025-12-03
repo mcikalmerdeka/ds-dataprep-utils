@@ -1,10 +1,10 @@
 # Rapid EDA and Preprocessing Utility Scripts for Data Science Projects
 
-This repository contains a collection of utility scripts and functions designed to accelerate Exploratory Data Analysis (EDA) and Data Preprocessing tasks in Data Science projects. These scripts are optimized for quick usage in environments like Kaggle kernels or local Jupyter notebooks.
+This repository contains a collection of utility scripts and functions designed to accelerate Exploratory Data Analysis (EDA) and Data Preprocessing tasks in Data Science projects. These scripts are optimized for quick usage in environments like Kaggle kernels or local Jupyter notebooks. Initially this repository is created for my personal use, but I think it can be useful for others as well.
 
 ## 🚀 Features
 
-The current implementation (`ori_preprocessing.py`) includes a robust set of functions for:
+The scripts can be found in the `utils` folder. The available scripts are: `preprocessing.py`, `statistics.py`, `visualization.py`.
 
 ### 1. Data Inspection & Cleaning
 
@@ -43,12 +43,12 @@ The current implementation (`ori_preprocessing.py`) includes a robust set of fun
 
 ## 🛠️ Usage
 
-You can simply import the functions you need from the script.
+You can simply import the functions you need from the `utils` folder.
 
 ```python
 # Example Usage
 import pandas as pd
-from ori_preprocessing import check_data_information, handle_missing_values, feature_scaling
+from utils.preprocessing import check_data_information, handle_missing_values, feature_scaling
 
 # Load your data
 df = pd.read_csv('your_dataset.csv')

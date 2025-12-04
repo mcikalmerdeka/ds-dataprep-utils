@@ -284,6 +284,81 @@ def plot_dynamic_countplot(df: pd.DataFrame, col_series: List[str], ncols: int =
     plt.tight_layout()  # Adjust layout to avoid overlap
     plt.show()
 
+## Stripplot/swarmplot analysis
+def plot_dynamic_stripplot_swarmplot(df: pd.DataFrame, cat_col: str, nums_cols_series: List[str], hue_col: str = None, n_cols: int = 2, figsize: Tuple[int, int] = (14, 10), plot_type: str = 'stripplot') -> None:
+    """
+    Create multiple stripplots or swarmplots comparing a categorical column against numerical columns.
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        The input dataframe containing the data
+    cat_col : str
+        The name of the categorical column to plot on x-axis
+    nums_cols_series : List[str]
+        List of numerical column names to plot on y-axis
+    hue_col : str, optional, default=None
+        Column name to use for color coding (default: None)
+    n_cols : int, optional
+        Number of columns in the subplot grid (default: 2)
+    figsize : Tuple[int, int], optional, default=(14, 10)
+        Figure size in inches (width, height) (default: (14, 10))
+    plot_type : str, optional, default='stripplot'
+        Type of plot to create: 'stripplot' or 'swarmplot' (default: 'stripplot')
+
+    Examples:
+    ---------
+    >>> # Create stripplots for numerical columns
+    >>> plot_dynamic_stripplot_swarmplot(df, cat_col='category', nums_cols_series=['col1', 'col2'], hue_col='hue_col', plot_type='stripplot')
+    
+    >>> # Create swarmplots for numerical columns
+    >>> plot_dynamic_stripplot_swarmplot(df, cat_col='category', nums_cols_series=['col1', 'col2'], hue_col='hue_col', plot_type='swarmplot')
+    
+    Returns:
+    --------
+    None
+        Display a grid of plots
+    """
+    # Validate plot_type
+    if plot_type not in ['stripplot', 'swarmplot']:
+        raise ValueError("plot_type must be either 'stripplot' or 'swarmplot'")
+    
+    # Calculate number of rows needed based on number of plots and columns
+    n_plots = len(nums_cols_series)
+    n_rows = (n_plots + n_cols - 1) // n_cols
+    
+    # Create subplots
+    fig, ax = plt.subplots(nrows=n_rows, ncols=n_cols, 
+                          figsize=figsize)
+    
+    # Flatten axes array for easier iteration
+    ax = ax.flatten() if n_plots > 1 else [ax]
+    
+    # Create plots
+    for i, num_col in enumerate(nums_cols_series):
+        if plot_type == 'stripplot':
+            sns.stripplot(data=df, ax=ax[i], 
+                         x=cat_col, y=num_col, 
+                         hue=hue_col)
+            plot_name = 'Stripplot'
+        else:  # swarmplot
+            sns.swarmplot(data=df, ax=ax[i], 
+                         x=cat_col, y=num_col, 
+                         hue=hue_col)
+            plot_name = 'Swarmplot'
+            
+        ax[i].set_title(f'{cat_col} {plot_name} for {num_col}')
+        
+        # Rotate x-axis labels if they're too long
+        ax[i].tick_params(axis='x', rotation=45)
+    
+    # Hide empty subplots if any
+    for i in range(len(nums_cols_series), len(ax)):
+        ax[i].set_visible(False)
+    
+    plt.tight_layout()
+    plt.show()
+
 ## Correlation heatmap analysis on numerical features and target
 def plot_correlation_heatmap(df: pd.DataFrame, col_series: List[str], corr_method: str = 'pearson', figsize: Tuple[int, int] = (8, 6), cmap: str = 'coolwarm') -> None:
     """
@@ -316,10 +391,13 @@ def plot_correlation_heatmap(df: pd.DataFrame, col_series: List[str], corr_metho
     
     # Compute correlation matrix
     correlation_matrix = df[col_series].corr(method=corr_method)
+
+    # Mask the upper triangle of the correlation matrix
+    mask = np.triu(np.ones_like(correlation_matrix, dtype=bool))
     
     # Plot heatmap
     plt.figure(figsize=figsize)
-    sns.heatmap(data=correlation_matrix, cmap=cmap, annot=True, fmt='.3f', vmin=-1, vmax=1)
+    sns.heatmap(data=correlation_matrix, cmap=cmap, annot=True, fmt='.3f', vmin=-1, vmax=1, mask=mask)
     plt.title(f'{corr_method.capitalize()} Correlation')
     
     plt.tight_layout()

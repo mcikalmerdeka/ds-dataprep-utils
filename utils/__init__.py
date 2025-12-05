@@ -21,3 +21,13 @@ from .visualization import (
     plot_dynamic_countplot,
     plot_correlation_heatmap
 )
+
+from .regression_evals_and_tuning import (
+    eval_regression,
+    tune_pipelines
+)
+
+from .classification_evals_and_tuning import (
+    eval_classification,
+    tune_pipelines
+)

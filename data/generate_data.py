@@ -168,6 +168,10 @@ def generate_classification_data(
     
     df = pd.DataFrame(data)
     
+    # Ensure zero values in tenure (new customers)
+    zero_tenure_idx = np.random.choice(df.index, size=int(n_samples * 0.05), replace=False)
+    df.loc[zero_tenure_idx, 'tenure_months'] = 0
+    
     # Calculate total charges with some noise and issues
     df['total_charges'] = (df['monthly_charges'] * df['tenure_months'] * 
                            np.random.uniform(0.95, 1.05, n_samples))
@@ -180,6 +184,25 @@ def generate_classification_data(
     # Add outliers to specific columns
     df['monthly_charges'] = add_outliers(df['monthly_charges'], outlier_rate=0.03, random_state=random_state)
     df['age'] = add_outliers(df['age'].astype(float), outlier_rate=0.02, multiplier=3, random_state=random_state+1)
+    
+    # --- Numeric in Object & Empty strings injection (Classification) ---
+    
+    # 1. Total Charges: Make it an object column with mixed types (Numeric-in-Object)
+    # Convert to string first
+    df['total_charges'] = df['total_charges'].astype(str)
+    
+    # Inject Empty Strings / Whitespace (simulating missing data entry)
+    empty_indices = np.random.choice(df.index, size=int(n_samples * 0.05), replace=False)
+    df.loc[empty_indices, 'total_charges'] = np.random.choice(["", " ", "  "], size=len(empty_indices))
+    
+    # Inject some text garbage to ensure it's treated as object (e.g. "Payment Pending")
+    text_indices = np.random.choice(df.index, size=int(n_samples * 0.02), replace=False)
+    df.loc[text_indices, 'total_charges'] = "Pending"
+    
+    # 2. Payment Method: Inject specific Empty Strings (Categorical)
+    # We replace some valid values with empty strings
+    empty_payment_idx = np.random.choice(df.index, size=int(n_samples * 0.03), replace=False)
+    df.loc[empty_payment_idx, 'payment_method'] = np.random.choice(["", " "], size=len(empty_payment_idx))
     
     # Generate target variable (churn) - imbalanced
     churn_prob = 0.2 + 0.3 * (df['tenure_months'] < 12).astype(float)
@@ -327,6 +350,28 @@ def generate_regression_data(
     
     # Add outliers to sqft
     df['sqft_living'] = add_outliers(df['sqft_living'], outlier_rate=0.03, multiplier=4, random_state=random_state)
+    
+    # --- Numeric in Object & Empty strings injection (Regression) ---
+    
+    # 1. Sqft Basement: Make it an object column with mixed types (Numeric-in-Object)
+    # Convert to string
+    df['sqft_basement'] = df['sqft_basement'].astype(str)
+    
+    # Inject Empty Strings / Whitespace
+    empty_bsmt_idx = np.random.choice(df.index, size=int(n_samples * 0.06), replace=False)
+    df.loc[empty_bsmt_idx, 'sqft_basement'] = np.random.choice(["", " ", "  "], size=len(empty_bsmt_idx))
+    
+    # Inject text values (e.g., "None", "TBD")
+    text_bsmt_idx = np.random.choice(df.index, size=int(n_samples * 0.03), replace=False)
+    df.loc[text_bsmt_idx, 'sqft_basement'] = np.random.choice(["None", "TBA", "Check Plan"], size=len(text_bsmt_idx))
+    
+    # 2. City: Inject Empty Strings
+    empty_city_idx = np.random.choice(df.index, size=int(n_samples * 0.04), replace=False)
+    df.loc[empty_city_idx, 'city'] = np.random.choice(["", " "], size=len(empty_city_idx))
+    
+    # 3. Inject Negative Values (Anomalies in Lot Size - Physically impossible)
+    neg_lot_idx = np.random.choice(df.index, size=int(n_samples * 0.01), replace=False)
+    df.loc[neg_lot_idx, 'sqft_lot'] = -1 * df.loc[neg_lot_idx, 'sqft_lot']
     
     # Generate target variable (price) - based on features with noise
     base_price = (
@@ -529,6 +574,8 @@ if __name__ == "__main__":
     print("   • Outliers in numeric columns")
     print("   • Skewed distributions")
     print("   • Mixed data types (e.g., 'Yes', 'No', 1, 0 in same column)")
+    print("   • Numeric-in-Object (e.g., numbers stored as strings mixed with 'Pending')")
+    print("   • Empty strings and whitespaces")
     print("   • Invalid/negative values where inappropriate")
     print("   • High cardinality categorical features")
     

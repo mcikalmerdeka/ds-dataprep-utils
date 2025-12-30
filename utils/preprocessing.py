@@ -13,7 +13,8 @@ from typing import List, Dict, Union, Optional, Any, Tuple
 ## Checking basic data information
 def check_data_information(data: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
     """
-    Check basic data information including data types, null values, duplicates, and unique values.
+    Check basic data information including data types, null values, duplicates, unique values,
+    and various data characteristics like zero/negative values, empty strings, and cardinality.
     
     Parameters:
     -----------
@@ -25,29 +26,77 @@ def check_data_information(data: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
     Returns:
     --------
     pd.DataFrame
-        A DataFrame containing information about each column
+        A DataFrame containing extended information about each column
     
     Examples:
     ---------
     >>> # Check information for all columns
     >>> info_df = check_data_information(df, df.columns.tolist())
-    
-    >>> # Check information for specific columns
-    >>> info_df = check_data_information(df, ['age', 'salary', 'department'])
     """
     list_item = []
+    total_rows = len(data)
+    duplicated_rows = data.duplicated().sum() # Calculate once as it's global
+    
     for col in cols:
-        # Convert unique values to string representation
-        unique_sample = ', '.join(map(str, data[col].unique()[:5]))
+        series = data[col]
         
+        # Calculate basic metrics
+        dtype = series.dtype
+        null_count = series.isna().sum()
+        null_pct = round(100 * null_count / total_rows, 2)
+        nunique = series.nunique()
+        cardinality_ratio = round(nunique / total_rows, 4)
+        
+        # Format unique sample
+        unique_vals = series.unique()
+        unique_sample_count = min(5, len(unique_vals))
+        unique_sample = ', '.join(map(str, unique_vals[:unique_sample_count]))
+        
+        # Initialize type-specific metrics
+        zeros_count = 0
+        zeros_pct = 0.0
+        neg_count = 0
+        neg_pct = 0.0
+        empty_str_count = 0
+        numeric_in_object = 0
+        
+        # Numeric Checks (Zero, Negative)
+        if pd.api.types.is_numeric_dtype(series):
+            zeros_count = (series == 0).sum()
+            zeros_pct = round(100 * zeros_count / total_rows, 2)
+            neg_count = (series < 0).sum()
+            neg_pct = round(100 * neg_count / total_rows, 2)
+            
+        # Object/String Checks (Empty Strings, Numeric content)
+        # Check for object or categorical that might contain strings
+        elif pd.api.types.is_object_dtype(series) or pd.api.types.is_string_dtype(series) or isinstance(series.dtype, pd.CategoricalDtype):
+            # Empty Strings / Whitespace
+            # Convert to str, handling NaNs
+            try:
+                # We filter out NaNs first to avoid counting them as empty strings implies existing but empty
+                non_null = series.dropna().astype(str)
+                empty_str_count = non_null[non_null.str.strip() == ''].count()
+                
+                # Numeric-in-Object (Count values that can be coerced to numbers)
+                numeric_in_object = pd.to_numeric(series, errors='coerce').notna().sum()
+            except Exception:
+                pass # Fail silently for complex objects if any
+
         list_item.append([
-            col,                                           # The column name
-            str(data[col].dtype),                          # The data type as string
-            data[col].isna().sum(),                        # The count of null values
-            round(100 * data[col].isna().sum() / len(data[col]), 2),  # The percentage of null values
-            data.duplicated().sum(),                       # The count of duplicated rows
-            data[col].nunique(),                           # The count of unique values
-            unique_sample                                  # Sample of unique values as string
+            col,                 # Feature name
+            str(dtype),          # Data Type
+            null_count,          # Count of null values
+            null_pct,            # Percentage of null values
+            zeros_count,         # Count of zero values (numeric only)
+            zeros_pct,           # Percentage of zero values
+            neg_count,           # Count of negative values (numeric only)
+            neg_pct,             # Percentage of negative values
+            empty_str_count,     # Count of empty/whitespace strings
+            numeric_in_object,   # Count of numeric values in object column
+            duplicated_rows,     # Count of duplicated rows in df
+            nunique,             # Count of unique values
+            cardinality_ratio,   # Ratio of unique values to total rows
+            unique_sample        # Sample of unique values
         ])
 
     desc_df = pd.DataFrame(
@@ -57,8 +106,15 @@ def check_data_information(data: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
             'Data Type',
             'Null Values',
             'Null Percentage',
+            'Zero Values',
+            'Zero Percentage',
+            'Negative Values',
+            'Negative Percentage',
+            'Empty Strings',
+            'Numeric in Object',
             'Duplicated Values',
             'Unique Values',
+            'Cardinality Ratio',
             'Unique Sample'
         ]
     )

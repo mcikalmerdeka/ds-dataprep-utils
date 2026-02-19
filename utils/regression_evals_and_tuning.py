@@ -3,6 +3,7 @@
 from sklearn.metrics import (
     mean_absolute_error,
     mean_squared_error,
+    root_mean_squared_error,
     mean_absolute_percentage_error,
     r2_score,
     get_scorer
@@ -187,7 +188,7 @@ def eval_regression(
                 'train': metric_funcs[metric](y_train, y_pred_train)
             }
 
-        # Calculate RMSE manually (since it's not a direct scoring parameter in sklearn < 1.4)
+        # Calculate RMSE from CV MSE scores (scikit-learn 1.4+ has native root_mean_squared_error)
         # CV RMSE
         mse_test_scores = -cv_scores['test_mse']
         mse_train_scores = -cv_scores['train_mse']
@@ -201,10 +202,10 @@ def eval_regression(
             'train_std': rmse_train_scores.std()
         }
         
-        # Single run RMSE
+        # Single run RMSE using sklearn's native implementation
         metrics['rmse'] = {
-            'test': np.sqrt(metrics['mse']['test']),
-            'train': np.sqrt(metrics['mse']['train'])
+            'test': root_mean_squared_error(y_test, y_pred_test),
+            'train': root_mean_squared_error(y_train, y_pred_train)
         }
 
         # Add custom metrics if provided
@@ -244,6 +245,69 @@ def eval_regression(
     except Exception as e:
         print(f"Error during evaluation: {str(e)}")
         raise
+
+# Function to compare cross-validated metrics from multiple models
+def compare_cv_metrics(metrics_dict: dict) -> pd.DataFrame:
+    """
+    Compare cross-validated metrics from multiple models in a single table.
+    
+    This function extracts only the cross-validation metrics (not single-run metrics)
+    from multiple model evaluations and presents them in a comparison DataFrame.
+    
+    Parameters:
+    -----------
+    metrics_dict : dict
+        Dictionary with model names as keys and metrics dictionaries as values.
+        Format: {'model_name': metrics_dict_from_eval_regression}
+        
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame with models as rows and CV metrics as columns
+        
+    Example:
+    --------
+    >>> metrics_rf = eval_regression(model=rf, X_train=X_train, y_train=y_train, 
+    ...                              X_test=X_test, y_test=y_test)
+    >>> metrics_xgb = eval_regression(model=xgb, X_train=X_train, y_train=y_train,
+    ...                               X_test=X_test, y_test=y_test)
+    >>> comparison = compare_cv_metrics({
+    ...     'Random Forest': metrics_rf,
+    ...     'XGBoost': metrics_xgb
+    ... })
+    >>> display(comparison)
+    """
+    # Define metrics to extract from CV results
+    cv_metrics = ['mae', 'mse', 'rmse', 'mape', 'r2']
+    
+    # Prepare data for DataFrame
+    data = []
+    
+    for model_name, metrics in metrics_dict.items():
+        row = {'Model': model_name}
+        
+        # Extract CV metrics (test set only)
+        for metric in cv_metrics:
+            if 'cv' in metrics and metric in metrics['cv']:
+                mean_val = metrics['cv'][metric]['test_mean']
+                std_val = metrics['cv'][metric]['test_std']
+                
+                # Format based on metric type
+                if metric == 'mape':
+                    row[f'{metric.upper()}'] = f"{mean_val*100:.2f}% ± {std_val*100:.2f}%"
+                elif metric == 'r2':
+                    row[f'{metric.upper()}'] = f"{mean_val:.4f} ± {std_val:.4f}"
+                else:
+                    row[f'{metric.upper()}'] = f"{mean_val:.4f} ± {std_val:.4f}"
+            else:
+                row[f'{metric.upper()}'] = 'N/A'
+        
+        data.append(row)
+    
+    # Create DataFrame
+    df = pd.DataFrame(data)
+    
+    return df
 
 # ╔══════════════════════════════════════════════════════════════════════════════════╗
 # ║            Functions for Hyperparameter Tuning                                   ║
@@ -398,11 +462,8 @@ def tune_pipelines(
                     print(f"  {param}: {value}")
                 
                 # Show test score with best estimator
-                y_pred_test = model.best_estimator_.predict(X_test)
-                test_score = get_scorer(scoring)._score_func(y_test, y_pred_test)
-                # Handle negative scoring metrics
-                if scoring.startswith('neg_'):
-                    test_score = -test_score
+                scorer = get_scorer(scoring)
+                test_score = scorer(model.best_estimator_, X_test, y_test)
                 print(f"\nTest {scoring}: {test_score:.4f}")
 
         except Exception as e:
@@ -456,18 +517,13 @@ def _plot_validation_curves(
             # Fit and evaluate
             current_pipeline.fit(X_train, y_train)
 
-            # Get predictions and scores
-            y_pred_train = current_pipeline.predict(X_train)
-            y_pred_test = current_pipeline.predict(X_test)
-            score_func = get_scorer(scoring)._score_func
-
-            train_score = score_func(y_train, y_pred_train)
-            test_score = score_func(y_test, y_pred_test)
+            # Use the scorer directly (it handles the correct signature)
+            scorer = get_scorer(scoring)
+            train_score = scorer(current_pipeline, X_train, y_train)
+            test_score = scorer(current_pipeline, X_test, y_test)
             
-            # Handle negative scoring metrics (convert to positive for display)
-            if scoring.startswith('neg_'):
-                train_score = -train_score
-                test_score = -test_score
+            # Scores are already in the correct sign (negative for errors, positive for R2)
+            # No need to negate here - display them as-is for validation curves
 
             train_scores.append(train_score)
             test_scores.append(test_score)
@@ -480,11 +536,9 @@ def _plot_validation_curves(
         plt.plot(param_values, train_scores, 'o-', label='Train', linewidth=2)
         plt.plot(param_values, test_scores, 'o-', label='Test', linewidth=2)
 
-        # Find best parameter value (for error metrics, lower is better)
-        if scoring.startswith('neg_'):
-            best_idx = np.argmin(test_scores)  # Lower error is better
-        else:
-            best_idx = np.argmax(test_scores)  # Higher score is better (e.g., R2)
+        # Find best parameter value
+        # For all scorers in sklearn: higher is better (errors are negated)
+        best_idx = np.argmax(test_scores)
         best_value = param_values[best_idx]
         best_score = test_scores[best_idx]
 
@@ -624,15 +678,15 @@ def get_hyperparameters(model_name: str, search_method: str = 'grid') -> dict:
             'dt__max_depth': [3, 5, 7, 10, 15, 20],
             'dt__min_samples_split': [2, 5, 10, 20],
             'dt__min_samples_leaf': [1, 2, 5, 10],
-            'dt__max_features': ['sqrt', 'log2', None]
+            'dt__max_features': ['sqrt', 'log2']
         },
         'randomforest': {
             'rf__n_estimators': [50, 100, 200],
-            'rf__criterion': ['squared_error', 'friedman_mse', 'absolute_error'],
-            'rf__max_depth': [5, 10, 15, 20],
-            'rf__min_samples_split': [2, 5, 10],
-            'rf__max_features': ['sqrt', 'log2', None],
-            'rf__min_samples_leaf': [1, 2, 4]
+            'rf__criterion': ['squared_error', 'friedman_mse'],
+            'rf__max_depth': [10, 15, 20, 30],
+            'rf__min_samples_split': [2, 5],
+            'rf__max_features': ['sqrt', 'log2'],
+            'rf__min_samples_leaf': [1, 2]
         },
         'gb': {
             'gb__n_estimators': [50, 100, 200],
@@ -682,14 +736,14 @@ def get_hyperparameters(model_name: str, search_method: str = 'grid') -> dict:
             'dt__max_depth': list(range(1, 25)),
             'dt__min_samples_split': list(range(2, 50)),
             'dt__min_samples_leaf': list(range(1, 30)),
-            'dt__max_features': ['sqrt', 'log2', None]
+            'dt__max_features': ['sqrt', 'log2']
         },
         'randomforest': {
             'rf__n_estimators': [25, 50, 75, 100, 150, 200, 300],
             'rf__criterion': ['squared_error', 'friedman_mse', 'absolute_error'],
             'rf__max_depth': list(range(3, 25)),
             'rf__min_samples_split': [2, 5, 7, 10, 15],
-            'rf__max_features': ['sqrt', 'log2', None],
+            'rf__max_features': ['sqrt', 'log2'],
             'rf__min_samples_leaf': [1, 2, 4, 6, 8]
         },
         'gb': {

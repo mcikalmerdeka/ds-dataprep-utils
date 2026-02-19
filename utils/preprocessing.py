@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy import stats
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, PowerTransformer, QuantileTransformer, OneHotEncoder, OrdinalEncoder
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, PowerTransformer, QuantileTransformer, OneHotEncoder, OrdinalEncoder, TargetEncoder
 from sklearn.impute import KNNImputer
 from sklearn.compose import ColumnTransformer
 from typing import List, Dict, Union, Optional, Any, Tuple
@@ -635,11 +635,18 @@ def feature_scaling(data: pd.DataFrame, scaling_config: Optional[Dict[str, Any]]
         return df_scaled, scaler
 
 ## Feature encoding function
-def feature_encoding(data: pd.DataFrame, ordinal_columns: Optional[List[str]] = None, nominal_columns: Optional[List[str]] = None, 
+def feature_encoding(data: pd.DataFrame, ordinal_columns: Optional[List[str]] = None, 
+                     nominal_columns: Optional[List[str]] = None, mean_encoding_columns: Optional[List[str]] = None,
                      ordinal_categories: Optional[Dict[str, List[Any]]] = None, drop_first: bool = True, 
-                     preserve_dtypes: bool = True, handle_unknown: str = 'error') -> pd.DataFrame:
+                     preserve_dtypes: bool = True, handle_unknown: str = 'error',
+                     target: Optional[pd.Series] = None, encoders: Optional[Dict[str, Any]] = None,
+                     mean_target_type: str = 'continuous', mean_smooth: Union[str, float] = 'auto',
+                     mean_cv: int = 5
+                     ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
-    General feature encoding function using sklearn ColumnTransformer.
+    General feature encoding function supporting ordinal, one-hot, and mean encoding.
+    
+    Uses sklearn's TargetEncoder for mean encoding with built-in cross-fitting to prevent data leakage.
     
     Parameters:
     -----------
@@ -649,155 +656,253 @@ def feature_encoding(data: pd.DataFrame, ordinal_columns: Optional[List[str]] = 
         List of column names for ordinal encoding
     nominal_columns : Optional[List[str]], optional
         List of column names for one-hot encoding
+    mean_encoding_columns : Optional[List[str]], optional
+        List of column names for mean encoding.
+        Each category is replaced with the mean of the target variable for that category.
+        Best for high-cardinality categorical features.
     ordinal_categories : Optional[Dict[str, List[Any]]], optional
         Dictionary mapping ordinal column names to their category order lists
-        Example: {'Education': ['SMA', 'D3', 'S1', 'S2', 'S3']}
     drop_first : bool, default=True
         Whether to drop first category in one-hot encoding (avoid dummy trap)
     preserve_dtypes : bool, default=True
         Whether to preserve original dtypes for non-encoded columns
     handle_unknown : str, default='error'
         How to handle unknown categories: 'error', 'use_encoded_value', 'ignore'
+    target : Optional[pd.Series], default=None
+        Target variable for mean encoding. REQUIRED when mean_encoding_columns is specified
+        and encoders is None (i.e., for training data).
+    encoders : Optional[Dict[str, Any]], default=None
+        Dictionary of pre-fitted encoders (for validation/test data).
+        If provided, uses these encoders instead of fitting new ones.
+    mean_target_type : str, default='continuous'
+        Type of target variable for mean encoding: 'continuous' for regression, 'binary' for classification.
+    mean_smooth : Union[str, float], default='auto'
+        Smoothing parameter for mean encoding. 'auto' uses empirical Bayes, or provide a float.
+    mean_cv : int, default=5
+        Number of cross-validation folds for internal cross-fitting to prevent data leakage.
         
     Returns:
     --------
-    pd.DataFrame
-        Encoded dataframe with preserved column order and dtypes
+    Tuple[pd.DataFrame, Dict[str, Any]]
+        Encoded dataframe and dictionary of fitted encoders
         
     Examples:
     ---------
-    >>> # Simple one-hot encoding
-    >>> df_encoded = feature_encoding(df, nominal_columns=['Color', 'Size'])
-    
-    >>> # Ordinal encoding with custom order
-    >>> df_encoded = feature_encoding(
-    ...     df, 
-    ...     ordinal_columns=['Education'],
-    ...     ordinal_categories={'Education': ['SMA', 'D3', 'S1', 'S2', 'S3']}
+    >>> # Fit on training data
+    >>> X_train_encoded, encoders = feature_encoding(
+    ...     X_train,
+    ...     ordinal_columns=['Class'],
+    ...     nominal_columns=['BuildingType'],
+    ...     mean_encoding_columns=['District'],
+    ...     ordinal_categories={'Class': ['Low', 'Medium', 'High']},
+    ...     target=y_train
     ... )
     
-    >>> # Mixed encoding
-    >>> df_encoded = feature_encoding(
-    ...     df,
-    ...     ordinal_columns=['Education', 'Age_Group'],
-    ...     nominal_columns=['Marital_Status'],
-    ...     ordinal_categories={
-    ...         'Education': ['SMA', 'D3', 'S1', 'S2', 'S3'],
-    ...         'Age_Group': ['Young Adult', 'Middle Adult', 'Senior Adult']
-    ...     }
+    >>> # Transform validation data using fitted encoders
+    >>> X_val_encoded, _ = feature_encoding(
+    ...     X_val,
+    ...     ordinal_columns=['Class'],
+    ...     nominal_columns=['BuildingType'],
+    ...     mean_encoding_columns=['District'],
+    ...     ordinal_categories={'Class': ['Low', 'Medium', 'High']},
+    ...     encoders=encoders
     ... )
     """
     # Initialize defaults
     ordinal_columns = ordinal_columns or []
     nominal_columns = nominal_columns or []
+    mean_encoding_columns = mean_encoding_columns or []
     ordinal_categories = ordinal_categories or {}
     
     # Validate inputs
-    all_encoding_cols = ordinal_columns + nominal_columns
+    all_encoding_cols = ordinal_columns + nominal_columns + mean_encoding_columns
     missing_cols = [col for col in all_encoding_cols if col not in data.columns]
     if missing_cols:
         raise ValueError(f"Columns not found in dataframe: {missing_cols}")
     
-    if not ordinal_columns and not nominal_columns:
-        raise ValueError("Must specify at least one column to encode (ordinal_columns or nominal_columns)")
+    if not ordinal_columns and not nominal_columns and not mean_encoding_columns:
+        return data.copy(), encoders or {}
     
-    # Validate ordinal categories
     for col in ordinal_columns:
         if col not in ordinal_categories:
             raise ValueError(f"Ordinal column '{col}' requires category order in ordinal_categories")
-        
         unique_vals = data[col].unique()
         if not all(val in ordinal_categories[col] for val in unique_vals):
             print(f"Warning: Some values in '{col}' are not in the specified category order")
     
-    # Copy dataframe
-    df_preprocessed = data.copy()
+    if mean_encoding_columns and encoders is None and target is None:
+        raise ValueError("target parameter is required when mean_encoding_columns is specified and encoders is None (training data)")
     
-    # Store original dtypes
+    # Copy dataframe and store metadata
+    df_preprocessed = data.copy()
     original_dtypes = df_preprocessed.dtypes if preserve_dtypes else None
     
-    # Identify datetime columns to preserve separately
+    # Preserve datetime columns separately
     datetime_columns = df_preprocessed.select_dtypes(include=['datetime64']).columns.tolist()
     datetime_data = df_preprocessed[datetime_columns].copy() if datetime_columns else None
     
-    # Build transformers list
-    transformers = []
+    # Initialize encoder storage
+    is_fitting = encoders is None
+    fitted_encoders = {} if is_fitting else encoders.copy()
     
-    # Add ordinal encoders
-    for col in ordinal_columns:
-        transformers.append((
-            f'ordinal_{col}',
-            OrdinalEncoder(
-                categories=[ordinal_categories[col]], 
-                dtype=np.float64,
-                handle_unknown=handle_unknown
-            ),
-            [col]
-        ))
+    # ===== STEP 1: Handle ordinal and one-hot encoding =====
+    sklearn_encoding_cols = ordinal_columns + nominal_columns
     
-    # Add one-hot encoders
-    for col in nominal_columns:
-        transformers.append((
-            f'onehot_{col}',
-            OneHotEncoder(
-                drop='first' if drop_first else None,
-                sparse_output=False,
-                dtype=np.float64,
-                handle_unknown='ignore' if handle_unknown == 'ignore' else 'error'
-            ),
-            [col]
-        ))
-    
-    # Create column transformer
-    preprocessor = ColumnTransformer(
-        transformers=transformers,
-        remainder='passthrough',
-        verbose_feature_names_out=False
-    )
-    
-    # Remove datetime columns before transformation
-    df_for_transform = df_preprocessed.drop(columns=datetime_columns) if datetime_columns else df_preprocessed
-    
-    # Apply transformation
-    df_encoded = preprocessor.fit_transform(df_for_transform)
-    
-    # Build column names
-    encoded_column_names = []
-    
-    # Add ordinal column names
-    encoded_column_names.extend(ordinal_columns)
-    
-    # Add one-hot encoded column names
-    for col in nominal_columns:
-        categories = df_for_transform[col].unique()
-        if drop_first:
-            # Sort to ensure consistent ordering
-            categories = sorted(categories)
-            encoded_column_names.extend([f'{col}_{cat}' for cat in categories[1:]])
+    if sklearn_encoding_cols:
+        # Prepare data by excluding datetime and mean encoding columns
+        cols_to_exclude = datetime_columns + mean_encoding_columns
+        df_for_sklearn = df_preprocessed.drop(columns=cols_to_exclude) if cols_to_exclude else df_preprocessed
+        
+        if is_fitting:
+            # Build transformers for training
+            transformers = []
+            for col in ordinal_columns:
+                # OrdinalEncoder doesn't support 'ignore', map it to 'use_encoded_value'
+                if handle_unknown == 'ignore':
+                    ord_handle_unknown = 'use_encoded_value'
+                    ord_unknown_value = -1
+                else:
+                    ord_handle_unknown = handle_unknown
+                    ord_unknown_value = None
+                
+                ord_encoder_params = {
+                    'categories': [ordinal_categories[col]],
+                    'dtype': np.float64,
+                    'handle_unknown': ord_handle_unknown
+                }
+                if ord_unknown_value is not None:
+                    ord_encoder_params['unknown_value'] = ord_unknown_value
+                
+                transformers.append((
+                    f'ordinal_{col}',
+                    OrdinalEncoder(**ord_encoder_params),
+                    [col]
+                ))
+            
+            for col in nominal_columns:
+                transformers.append((
+                    f'onehot_{col}',
+                    OneHotEncoder(
+                        drop='first' if drop_first else None,
+                        sparse_output=False,
+                        dtype=np.float64,
+                        handle_unknown='ignore' if handle_unknown == 'ignore' else 'error'
+                    ),
+                    [col]
+                ))
+            
+            # Fit and transform
+            preprocessor = ColumnTransformer(
+                transformers=transformers,
+                remainder='passthrough',
+                verbose_feature_names_out=False
+            )
+            
+            df_sklearn_encoded = preprocessor.fit_transform(df_for_sklearn)
+            
+            # Store fitted encoders
+            for name, trans, _ in preprocessor.transformers_:
+                if name != 'remainder':
+                    fitted_encoders[name] = trans
+            
+            # Build column names
+            encoded_column_names = list(ordinal_columns)
+            for col in nominal_columns:
+                oh = fitted_encoders[f'onehot_{col}']
+                cats = oh.categories_[0]
+                if drop_first and len(cats) > 1:
+                    encoded_column_names.extend([f'{col}_{cat}' for cat in cats[1:]])
+                else:
+                    encoded_column_names.extend([f'{col}_{cat}' for cat in cats])
+            
+            passthrough_cols = [c for c in df_for_sklearn.columns if c not in sklearn_encoding_cols]
+            encoded_column_names.extend(passthrough_cols)
+            
+            df_sklearn_encoded = pd.DataFrame(df_sklearn_encoded, columns=encoded_column_names, index=data.index)
         else:
-            encoded_column_names.extend([f'{col}_{cat}' for cat in sorted(categories)])
+            # Transform using pre-fitted encoders
+            df_sklearn_encoded = df_for_sklearn.copy()
+            
+            # Apply ordinal encoders
+            for col in ordinal_columns:
+                encoder_key = f'ordinal_{col}'
+                if encoder_key in fitted_encoders:
+                    df_sklearn_encoded[col] = fitted_encoders[encoder_key].transform(df_sklearn_encoded[[col]]).flatten()
+            
+            # Apply one-hot encoders
+            onehot_dfs = []
+            for col in nominal_columns:
+                encoder_key = f'onehot_{col}'
+                if encoder_key in fitted_encoders:
+                    oh_encoder = fitted_encoders[encoder_key]
+                    oh_result = oh_encoder.transform(df_sklearn_encoded[[col]])
+                    cats = oh_encoder.categories_[0]
+                    
+                    if drop_first and len(cats) > 1:
+                        oh_col_names = [f'{col}_{cat}' for cat in cats[1:]]
+                    else:
+                        oh_col_names = [f'{col}_{cat}' for cat in cats]
+                    
+                    oh_df = pd.DataFrame(oh_result, columns=oh_col_names, index=data.index)
+                    onehot_dfs.append(oh_df)
+            
+            # Remove original nominal columns and add one-hot encoded ones
+            df_sklearn_encoded = df_sklearn_encoded.drop(columns=nominal_columns)
+            if onehot_dfs:
+                df_sklearn_encoded = pd.concat([df_sklearn_encoded] + onehot_dfs, axis=1)
+        
+        # Convert to numeric
+        for col in df_sklearn_encoded.columns:
+            df_sklearn_encoded[col] = pd.to_numeric(df_sklearn_encoded[col], errors='coerce')
+    else:
+        # No sklearn encoding, just exclude mean encoding columns
+        cols_to_keep = [c for c in df_preprocessed.columns if c not in mean_encoding_columns + datetime_columns]
+        df_sklearn_encoded = df_preprocessed[cols_to_keep].copy()
     
-    # Add passthrough columns
-    passthrough_cols = [c for c in df_for_transform.columns if c not in all_encoding_cols]
-    encoded_column_names.extend(passthrough_cols)
+    # ===== STEP 2: Handle mean encoding =====
+    if mean_encoding_columns:
+        if is_fitting:
+            mean_encoder = TargetEncoder(
+                target_type=mean_target_type,
+                smooth=mean_smooth,
+                cv=mean_cv
+            )
+            df_mean_encoded = mean_encoder.fit_transform(df_preprocessed[mean_encoding_columns], target)
+            fitted_encoders['mean_encoder'] = mean_encoder
+        else:
+            mean_encoder = fitted_encoders['mean_encoder']
+            df_mean_encoded = mean_encoder.transform(df_preprocessed[mean_encoding_columns])
+        
+        df_mean_encoded = pd.DataFrame(df_mean_encoded, columns=mean_encoding_columns, index=data.index)
+        
+        # Convert to numeric
+        for col in mean_encoding_columns:
+            df_mean_encoded[col] = pd.to_numeric(df_mean_encoded[col], errors='coerce')
+        
+        # Combine sklearn and mean encoded data
+        df_final = pd.concat([df_sklearn_encoded, df_mean_encoded], axis=1)
+    else:
+        df_final = df_sklearn_encoded
     
-    # Convert to DataFrame
-    df_encoded = pd.DataFrame(df_encoded, columns=encoded_column_names, index=data.index)
-    
-    # Add back datetime columns
+    # ===== STEP 3: Restore datetime columns and dtypes =====
     if datetime_columns:
         for col in datetime_columns:
-            df_encoded[col] = datetime_data[col]
+            df_final[col] = datetime_data[col]
     
-    # Preserve original dtypes for non-encoded columns
     if preserve_dtypes:
-        encoded_cols = ordinal_columns + [col for col in df_encoded.columns if any(col.startswith(f'{nc}_') for nc in nominal_columns)]
+        all_encoded_cols = (
+            ordinal_columns + 
+            [col for col in df_final.columns if any(col.startswith(f'{nc}_') for nc in nominal_columns)] +
+            mean_encoding_columns
+        )
         
-        for col in df_encoded.columns:
-            if col in original_dtypes and col not in encoded_cols:
+        for col in df_final.columns:
+            if col in original_dtypes and col not in all_encoded_cols:
                 try:
-                    df_encoded[col] = df_encoded[col].astype(original_dtypes[col])
+                    df_final[col] = df_final[col].astype(original_dtypes[col])
                 except Exception as e:
                     print(f"Warning: Could not convert column '{col}' back to {original_dtypes[col]}. Error: {e}")
     
-    return df_encoded
+    return df_final, fitted_encoders
+
+

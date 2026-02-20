@@ -303,6 +303,57 @@ def eval_classification(
         print(f"Error during evaluation: {str(e)}")
         raise
 
+def compare_cv_metrics(metrics_dict: dict) -> pd.DataFrame:
+    """
+    Compare cross-validated metrics from multiple classification models in a single table.
+    
+    This function extracts only the cross-validation metrics (not single-run metrics)
+    from multiple model evaluations and presents them in a comparison DataFrame.
+    
+    Parameters:
+    -----------
+    metrics_dict : dict
+        Dictionary with model names as keys and metrics dictionaries as values.
+        Format: {'model_name': metrics_dict_from_eval_classification}
+        
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame with models as rows and CV metrics as columns
+        
+    Example:
+    --------
+    >>> metrics_rf = eval_classification(model=rf, X_train=X_train, y_train=y_train, 
+    ...                                  X_test=X_test, y_test=y_test)
+    >>> metrics_xgb = eval_classification(model=xgb, X_train=X_train, y_train=y_train,
+    ...                                   X_test=X_test, y_test=y_test)
+    >>> comparison = compare_cv_metrics({
+    ...     'Random Forest': metrics_rf,
+    ...     'XGBoost': metrics_xgb
+    ... })
+    >>> display(comparison)
+    """
+    cv_metrics = ['accuracy', 'precision', 'recall', 'f1', 'roc_auc']
+    
+    data = []
+    
+    for model_name, metrics in metrics_dict.items():
+        row = {'Model': model_name}
+        
+        for metric in cv_metrics:
+            if 'cv' in metrics and metric in metrics['cv']:
+                mean_val = metrics['cv'][metric]['test_mean']
+                std_val = metrics['cv'][metric]['test_std']
+                row[f'{metric.upper()}'] = f"{mean_val*100:.2f}% ± {std_val*100:.2f}%"
+            else:
+                row[f'{metric.upper()}'] = 'N/A'
+        
+        data.append(row)
+    
+    df = pd.DataFrame(data)
+    
+    return df
+
 # ╔══════════════════════════════════════════════════════════════════════════════════╗
 # ║            Functions for Hyperparameter Tuning                                   ║
 # ╚══════════════════════════════════════════════════════════════════════════════════╝

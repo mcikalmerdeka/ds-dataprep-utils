@@ -1,3 +1,4 @@
+# Core preprocessing functions (always available)
 from .preprocessing import (
     check_data_information,
     drop_columns,
@@ -8,6 +9,14 @@ from .preprocessing import (
     feature_encoding
 )
 
+# Feature selection functions (always available)
+from .feature_selection import (
+    calculate_correlation_tabular,
+    analyze_categorical_relationships,
+    calculate_vif,
+    calculate_feature_importance
+)
+# Statistics functions (always available)
 from .statistics import (
     describe_numerical_combined,
     describe_categorical_combined,
@@ -15,6 +24,7 @@ from .statistics import (
     identify_distribution_types
 )
 
+# Visualization functions (always available)
 from .visualization import (
     plot_dynamic_hisplots_kdeplots,
     plot_dynamic_boxplots_violinplots,
@@ -22,12 +32,72 @@ from .visualization import (
     plot_correlation_heatmap
 )
 
+# ML regression functions
 from .regression_evals_and_tuning import (
     eval_regression,
-    tune_pipelines
+    compare_cv_metrics as compare_cv_metrics_regression,
+    tune_pipelines as tune_pipelines_regression,
+    tune_single_model as tune_single_model_regression,
+    tune_all_models as tune_all_models_regression,
+    get_model_pipeline as get_model_pipeline_regression,
+    get_hyperparameters as get_hyperparameters_regression
 )
 
+# ML classification functions
 from .classification_evals_and_tuning import (
     eval_classification,
-    tune_pipelines
+    compare_cv_metrics as compare_cv_metrics_classification,
+    tune_pipelines as tune_pipelines_classification,
+    tune_single_model as tune_single_model_classification,
+    tune_all_models as tune_all_models_classification,
+    get_model_pipeline as get_model_pipeline_classification,
+    get_hyperparameters as get_hyperparameters_classification
 )
+
+# Define what's exported with `from utils import *`
+__all__ = [
+    # Preprocessing
+    'check_data_information',
+    'drop_columns',
+    'change_binary_dtype',
+    'handle_missing_values',
+    'filter_outliers',
+    'feature_scaling',
+    'feature_encoding',
+
+    # Feature selection
+    'calculate_correlation_tabular',
+    'analyze_categorical_relationships',
+    'calculate_vif',
+    'calculate_feature_importance',
+    
+    # Statistics
+    'describe_numerical_combined',
+    'describe_categorical_combined',
+    'describe_date_columns',
+    'identify_distribution_types',
+    
+    # Visualization
+    'plot_dynamic_hisplots_kdeplots',
+    'plot_dynamic_boxplots_violinplots',
+    'plot_dynamic_countplot',
+    'plot_correlation_heatmap',
+    
+    # ML regression
+    'eval_regression',
+    'compare_cv_metrics_regression',
+    'tune_pipelines_regression',
+    'tune_single_model_regression',
+    'tune_all_models_regression',
+    'get_model_pipeline_regression',
+    'get_hyperparameters_regression',
+    
+    # ML classification
+    'eval_classification',
+    'compare_cv_metrics_classification',
+    'tune_pipelines_classification',
+    'tune_single_model_classification',
+    'tune_all_models_classification',
+    'get_model_pipeline_classification',
+    'get_hyperparameters_classification',
+]

@@ -8,7 +8,7 @@ from sklearn.metrics import (
     r2_score,
     get_scorer
 )
-from sklearn.model_selection import cross_validate, RepeatedKFold, RandomizedSearchCV, GridSearchCV
+from sklearn.model_selection import cross_validate, RepeatedKFold, RandomizedSearchCV, GridSearchCV, learning_curve
 from sklearn.base import clone
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
@@ -35,6 +35,9 @@ def eval_regression(
     X_train,
     y_train,
     custom_metrics=None,
+    plot_predicted_vs_actual=True,
+    plot_residuals=True,
+    plot_residuals_dist=True,
     n_splits=5,
     n_repeats=3,
     random_state=42
@@ -63,6 +66,17 @@ def eval_regression(
     custom_metrics : dict, optional (default=None)
         Additional custom metric functions to evaluate
         Format: {'metric_name': metric_function}
+    plot_predicted_vs_actual : bool, optional (default=True)
+        Whether to plot predicted vs actual values scatter plot with 45° reference line.
+        Shows systematic bias, outliers, and overall fit quality.
+    plot_residuals : bool, optional (default=True)
+        Whether to plot residuals vs predicted values. Checks for:
+        - Homoscedasticity (constant variance)
+        - Non-linear patterns
+        - Outliers and influential points
+    plot_residuals_dist : bool, optional (default=True)
+        Whether to plot residuals distribution histogram with KDE and normal curve overlay.
+        Checks normality assumption of residuals.
     n_splits : int, optional (default=5)
         Number of splits for cross-validation
     n_repeats : int, optional (default=3)
@@ -240,6 +254,126 @@ def eval_regression(
                 print(f"  Test:  {metrics[metric]['test']:.4f}")
                 print(f"  Train: {metrics[metric]['train']:.4f}")
 
+        # Plot 1: Predicted vs Actual
+        if plot_predicted_vs_actual:
+            fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+            
+            # Training set
+            ax1 = axes[0]
+            ax1.scatter(y_train, y_pred_train, alpha=0.5, edgecolors='none')
+            min_val = min(y_train.min(), y_pred_train.min())
+            max_val = max(y_train.max(), y_pred_train.max())
+            ax1.plot([min_val, max_val], [min_val, max_val], 'r--', lw=2, label='Perfect Prediction')
+            ax1.set_xlabel('Actual Values')
+            ax1.set_ylabel('Predicted Values')
+            ax1.set_title(f'Predicted vs Actual - Training Set\n{model.__class__.__name__}')
+            ax1.legend()
+            ax1.grid(True, alpha=0.3)
+            
+            # Add R² annotation
+            r2_train = metrics['r2']['train']
+            ax1.text(0.05, 0.95, f'R² = {r2_train:.4f}', transform=ax1.transAxes,
+                    verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+            
+            # Test set
+            ax2 = axes[1]
+            ax2.scatter(y_test, y_pred_test, alpha=0.5, edgecolors='none')
+            min_val = min(y_test.min(), y_pred_test.min())
+            max_val = max(y_test.max(), y_pred_test.max())
+            ax2.plot([min_val, max_val], [min_val, max_val], 'r--', lw=2, label='Perfect Prediction')
+            ax2.set_xlabel('Actual Values')
+            ax2.set_ylabel('Predicted Values')
+            ax2.set_title(f'Predicted vs Actual - Test Set\n{model.__class__.__name__}')
+            ax2.legend()
+            ax2.grid(True, alpha=0.3)
+            
+            # Add R² annotation
+            r2_test = metrics['r2']['test']
+            ax2.text(0.05, 0.95, f'R² = {r2_test:.4f}', transform=ax2.transAxes,
+                    verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+            
+            plt.tight_layout()
+            plt.show()
+
+        # Plot 2: Residuals vs Predicted
+        if plot_residuals:
+            fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+            
+            # Calculate residuals
+            residuals_train = y_train - y_pred_train
+            residuals_test = y_test - y_pred_test
+            
+            # Training set
+            ax1 = axes[0]
+            ax1.scatter(y_pred_train, residuals_train, alpha=0.5, edgecolors='none')
+            ax1.axhline(y=0, color='r', linestyle='--', lw=2)
+            ax1.set_xlabel('Predicted Values')
+            ax1.set_ylabel('Residuals (Actual - Predicted)')
+            ax1.set_title(f'Residuals vs Predicted - Training Set\n{model.__class__.__name__}')
+            ax1.grid(True, alpha=0.3)
+            
+            # Test set
+            ax2 = axes[1]
+            ax2.scatter(y_pred_test, residuals_test, alpha=0.5, edgecolors='none')
+            ax2.axhline(y=0, color='r', linestyle='--', lw=2)
+            ax2.set_xlabel('Predicted Values')
+            ax2.set_ylabel('Residuals (Actual - Predicted)')
+            ax2.set_title(f'Residuals vs Predicted - Test Set\n{model.__class__.__name__}')
+            ax2.grid(True, alpha=0.3)
+            
+            plt.tight_layout()
+            plt.show()
+
+        # Plot 3: Residuals Distribution
+        if plot_residuals_dist:
+            fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+            
+            # Training set
+            ax1 = axes[0]
+            residuals_train = y_train - y_pred_train
+            ax1.hist(residuals_train, bins=30, density=True, alpha=0.7, color='blue', edgecolor='black')
+            
+            # Add KDE
+            from scipy.stats import gaussian_kde, norm
+            kde = gaussian_kde(residuals_train)
+            x_range = np.linspace(residuals_train.min(), residuals_train.max(), 100)
+            ax1.plot(x_range, kde(x_range), 'b-', lw=2, label='KDE')
+            
+            # Add normal distribution overlay
+            mu, sigma = norm.fit(residuals_train)
+            ax1.plot(x_range, norm.pdf(x_range, mu, sigma), 'r--', lw=2, label='Normal Fit')
+            
+            ax1.axvline(x=0, color='green', linestyle='-', lw=2, label='Zero')
+            ax1.set_xlabel('Residuals')
+            ax1.set_ylabel('Density')
+            ax1.set_title(f'Residuals Distribution - Training Set\n{model.__class__.__name__}')
+            ax1.legend()
+            ax1.grid(True, alpha=0.3)
+            
+            # Test set
+            ax2 = axes[1]
+            residuals_test = y_test - y_pred_test
+            ax2.hist(residuals_test, bins=30, density=True, alpha=0.7, color='blue', edgecolor='black')
+            
+            # Add KDE
+            kde = gaussian_kde(residuals_test)
+            x_range = np.linspace(residuals_test.min(), residuals_test.max(), 100)
+            ax2.plot(x_range, kde(x_range), 'b-', lw=2, label='KDE')
+            
+            # Add normal distribution overlay
+            mu, sigma = norm.fit(residuals_test)
+            ax2.plot(x_range, norm.pdf(x_range, mu, sigma), 'r--', lw=2, label='Normal Fit')
+            
+            ax2.axvline(x=0, color='green', linestyle='-', lw=2, label='Zero')
+            ax2.set_xlabel('Residuals')
+            ax2.set_ylabel('Density')
+            ax2.set_title(f'Residuals Distribution - Test Set\n{model.__class__.__name__}')
+            ax2.legend()
+            ax2.grid(True, alpha=0.3)
+            
+            plt.tight_layout()
+            plt.show()
+
         return metrics
 
     except Exception as e:
@@ -330,6 +464,7 @@ def tune_pipelines(
     display=True,
     n_jobs=-1,
     plot_validation_curves=False,
+    plot_learning_curves=True,
     progress_bar=False
 ) -> tuple:
     """
@@ -367,6 +502,11 @@ def tune_pipelines(
     plot_validation_curves : bool, optional (default=False)
         Whether to plot validation curves (score vs hyperparameter value) for each parameter.
         Note: This fits models separately from the main search and can be slow.
+    plot_learning_curves : bool, optional (default=True)
+        Whether to plot learning curves (score vs training set size) after hyperparameter tuning.
+        Uses the best estimator from the search to diagnose underfitting/overfitting and 
+        determine if more data would help. Shows training score vs validation score across
+        different training set sizes.
     progress_bar : bool, optional (default=False)
         Whether to display a progress bar for parameter evaluations
 
@@ -465,6 +605,20 @@ def tune_pipelines(
                 scorer = get_scorer(scoring)
                 test_score = scorer(model.best_estimator_, X_test, y_test)
                 print(f"\nTest {scoring}: {test_score:.4f}")
+                
+                # Plot learning curves if requested
+                if plot_learning_curves:
+                    print(f"\nGenerating learning curves for {name}...")
+                    _plot_learning_curves(
+                        estimator=model.best_estimator_,
+                        X_train=X_train,
+                        y_train=y_train,
+                        scoring=scoring,
+                        name=name,
+                        n_splits=n_splits,
+                        n_repeats=n_repeats,
+                        random_state=random_state
+                    )
 
         except Exception as e:
             print(f"Error during {name} pipeline tuning: {str(e)}")
@@ -559,6 +713,133 @@ def _plot_validation_curves(
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
         plt.show()
+
+# Function for plotting learning curves
+def _plot_learning_curves(
+    estimator,
+    X_train,
+    y_train,
+    scoring: str,
+    name: str,
+    n_splits: int = 5,
+    n_repeats: int = 3,
+    random_state: int = 42
+):
+    """
+    Plot learning curves showing training and validation scores vs training set size.
+    
+    This helps diagnose underfitting/overfitting and determine if more data would help.
+    Uses RepeatedKFold for robust cross-validation.
+    
+    Parameters:
+    -----------
+    estimator : sklearn estimator
+        The fitted best estimator from hyperparameter tuning
+    X_train, y_train : array-like
+        Training data
+    scoring : str
+        Scoring metric to use (e.g., 'neg_mean_squared_error', 'r2')
+    name : str
+        Model name for the plot title
+    n_splits : int, optional (default=5)
+        Number of CV splits
+    n_repeats : int, optional (default=3)
+        Number of CV repeats
+    random_state : int, optional (default=42)
+        Random seed for reproducibility
+    """
+    # Create CV strategy
+    cv = RepeatedKFold(
+        n_splits=n_splits,
+        n_repeats=n_repeats,
+        random_state=random_state
+    )
+    
+    # Define training set sizes (percentages of training data)
+    train_sizes = np.linspace(0.1, 1.0, 10)
+    
+    # Calculate learning curve
+    train_sizes_abs, train_scores, test_scores = learning_curve(
+        estimator=estimator,
+        X=X_train,
+        y=y_train,
+        train_sizes=train_sizes,
+        cv=cv,
+        scoring=scoring,
+        n_jobs=-1,
+        random_state=random_state,
+        return_times=False
+    )
+    
+    # Calculate mean and std
+    train_scores_mean = np.mean(train_scores, axis=1)
+    train_scores_std = np.std(train_scores, axis=1)
+    test_scores_mean = np.mean(test_scores, axis=1)
+    test_scores_std = np.std(test_scores, axis=1)
+    
+    # Plot learning curve
+    fig, ax = plt.subplots(figsize=(12, 8))
+    
+    # Plot training scores
+    ax.plot(train_sizes_abs, train_scores_mean, 'o-', color='blue', 
+            label='Training Score', linewidth=2.5, markersize=8)
+    ax.fill_between(train_sizes_abs, train_scores_mean - train_scores_std,
+                    train_scores_mean + train_scores_std, alpha=0.2, color='blue')
+    
+    # Plot validation scores
+    ax.plot(train_sizes_abs, test_scores_mean, 'o-', color='darkorange',
+            label='Validation Score', linewidth=2.5, markersize=8)
+    ax.fill_between(train_sizes_abs, test_scores_mean - test_scores_std,
+                    test_scores_mean + test_scores_std, alpha=0.2, color='darkorange')
+    
+    # For error metrics (negative), calculate gap differently
+    if scoring.startswith('neg_'):
+        final_train = train_scores_mean[-1]
+        final_val = test_scores_mean[-1]
+        gap = final_val - final_train  # For negative scores, smaller gap is better
+        # Convert to positive for display (multiply by -1)
+        display_final_train = -final_train
+        display_final_val = -final_val
+        display_gap = -gap
+    else:
+        final_train = train_scores_mean[-1]
+        final_val = test_scores_mean[-1]
+        gap = final_train - final_val
+        display_final_train = final_train
+        display_final_val = final_val
+        display_gap = gap
+    
+    # Add text box with gap analysis
+    textstr = f'Final Gap: {display_gap:.3f}\n'
+    if display_gap < 0.01:
+        textstr += 'Status: Well-fitted ✓'
+    elif display_gap < 0.05:
+        textstr += 'Status: Slight overfitting'
+    else:
+        textstr += 'Status: High variance (overfitting)'
+    
+    # Check if more data would help (for positive metrics like R2)
+    if not scoring.startswith('neg_'):
+        if test_scores_mean[-1] - test_scores_mean[0] > 0.05:
+            textstr += '\nMore data may help'
+    else:
+        # For negative metrics (errors), check if validation is still improving
+        if test_scores_mean[0] - test_scores_mean[-1] > 0.05:  # Error decreasing
+            textstr += '\nMore data may help'
+    
+    ax.text(0.02, 0.98, textstr, transform=ax.transAxes, fontsize=11,
+            verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+    
+    # Configure plot
+    ax.set_xlabel('Training Set Size', fontsize=12)
+    ax.set_ylabel(f'{scoring.upper().replace("NEG_", "")} Score', fontsize=12)
+    ax.set_title(f'Learning Curves - {name}\n(Best Model After Hyperparameter Tuning)', 
+                fontsize=14)
+    ax.legend(loc='best', fontsize=11)
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.show()
 
 # Define supported models for regression
 SUPPORTED_MODELS = ['linearregression', 'ridge', 'lasso', 'elasticnet', 'knn', 'decisiontree', 'randomforest', 'gb', 'xgboost']
@@ -786,6 +1067,7 @@ def tune_single_model(
     random_state=42,
     display=True,
     plot_validation_curves=False,
+    plot_learning_curves=True,
     progress_bar=False
 ) -> tuple:
     """
@@ -819,6 +1101,8 @@ def tune_single_model(
         Whether to print results
     plot_validation_curves : bool, optional (default=False)
         Whether to plot validation curves
+    plot_learning_curves : bool, optional (default=True)
+        Whether to plot learning curves after tuning
     progress_bar : bool, optional (default=False)
         Whether to show progress bar
         
@@ -859,6 +1143,7 @@ def tune_single_model(
         random_state=random_state,
         display=display,
         plot_validation_curves=plot_validation_curves,
+        plot_learning_curves=plot_learning_curves,
         progress_bar=progress_bar
     )
     
@@ -878,6 +1163,7 @@ def tune_all_models(
     n_repeats=3,
     random_state=42,
     display=True,
+    plot_learning_curves=True,
     progress_bar=True
 ) -> tuple:
     """
@@ -910,6 +1196,8 @@ def tune_all_models(
         Random seed
     display : bool, optional (default=True)
         Whether to print results
+    plot_learning_curves : bool, optional (default=True)
+        Whether to plot learning curves for each model after tuning
     progress_bar : bool, optional (default=True)
         Whether to show progress bar
         
@@ -955,6 +1243,7 @@ def tune_all_models(
         n_repeats=n_repeats,
         random_state=random_state,
         display=display,
+        plot_learning_curves=plot_learning_curves,
         progress_bar=progress_bar
     )
 

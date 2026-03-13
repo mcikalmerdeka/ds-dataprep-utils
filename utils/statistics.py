@@ -260,97 +260,101 @@ def describe_date_columns(df: pd.DataFrame, date_columns: List[str]) -> pd.DataF
     return dates_summary
 
 ## Distribution type analysis
-def identify_distribution_types(df: pd.DataFrame, col_series: List[str], uniform_cols: Optional[List[str]] = None, multimodal_cols: Optional[List[str]] = None) -> pd.DataFrame:
+def identify_distribution_types(
+    df: pd.DataFrame,
+    col_series: List[str],
+    uniform_cols: Optional[List[str]] = None,
+    multimodal_cols: Optional[List[str]] = None,
+) -> pd.DataFrame:
     """
-    Identifies and categorizes the distribution type of each numerical column in the DataFrame based on skewness and kurtosis.
-    Allows manual specification of columns suspected to be uniform or bimodal/multimodal.
+    Identifies and categorizes the distribution type of each numerical column
+    based on skewness and kurtosis.
 
-    Parameters:
+    Skewness thresholds:
+        |skew| < 0.2  → Normal / Symmetric
+        0.2 ≤ |skew| < 0.5  → Slightly skewed
+        0.5 ≤ |skew| < 1.0  → Moderately skewed
+        |skew| ≥ 1.0  → Highly skewed
+
+    Kurtosis (excess, Fisher definition):
+        < -0.5  → Platykurtic (light-tailed / flat)
+        -0.5 to 0.5  → Mesokurtic (normal-like)
+        > 0.5  → Leptokurtic (heavy-tailed / peaked)
+
+    Parameters
+    ----------
     df : pd.DataFrame
-        The input DataFrame containing the data.
+        Input DataFrame.
     col_series : List[str]
-        List of column names to analyze for distribution type.
-    uniform_cols : Optional[List[str]], optional
-        List of column names suspected to be uniform. Default is None.
-    multimodal_cols : Optional[List[str]], optional
-        List of column names suspected to be bimodal/multimodal. Default is None.
+        Column names to analyze.
+    uniform_cols : List[str], optional
+        Columns to manually override as Uniform Distribution.
+    multimodal_cols : List[str], optional
+        Columns to manually override as Multi-modal Distribution.
 
-    Returns:
-    pd.DataFrame: A DataFrame containing the columns' names, skewness values, kurtosis values, and identified distribution type.
-    
-    Examples:
-    ---------
-    >>> # Basic distribution identification
-    >>> dist_types = identify_distribution_types(df, ['age', 'salary', 'experience'])
-    
-    >>> # With manual specification of distribution types
-    >>> dist_types = identify_distribution_types(
-    ...     df, 
-    ...     ['age', 'salary', 'rating', 'score'],
-    ...     uniform_cols=['rating'],
-    ...     multimodal_cols=['score']
-    ... )
+    Returns
+    -------
+    pd.DataFrame
+        Columns: Column Name, Mean, Median, Mode, Skewness, Kurtosis,
+                 Skewness Type, Kurtosis Type.
+
+    Examples
+    --------
+    >>> result = identify_distribution_types(df, df.select_dtypes('number').columns.tolist())
+    >>> result = identify_distribution_types(df, num_cols, uniform_cols=['Age'], multimodal_cols=['Income'])
     """
-    # Initialize lists to store results
-    mean_list = []
-    median_list = []
-    mode_list = []
-    skew_type_list = []
-    skew_val_list = []
-    kurtosis_val_list = []
+    records = []
 
-    # Loop through each column to calculate distribution metrics
     for col in col_series:
-        data = df[col].dropna()  # Remove any NaN values
+        data = df[col].dropna()
 
-        # Calculate summary statistics
         mean = round(data.mean(), 3)
-        median = data.median()
-        mode = data.mode()[0] if not data.mode().empty else median  # Handle case where mode is empty
+        median = round(data.median(), 3)
+        mode_vals = data.mode()
+        mode = round(mode_vals.iloc[0], 3) if not mode_vals.empty else median
+
         skew_val = round(skew(data, nan_policy="omit"), 3)
         kurtosis_val = round(kurtosis(data, nan_policy="omit"), 3)
 
-        # Identify distribution type based on skewness and summary statistics
-        if (mean == median == mode) or (-0.2 < skew_val < 0.2):
+        abs_skew = abs(skew_val)
+        if abs_skew < 0.2:
             skew_type = "Normal Distribution (Symmetric)"
-        elif mean < median < mode:
-            if skew_val <= -1:
-                skew_type = "Highly Negatively Skewed"
-            elif -0.5 >= skew_val > -1:
-                skew_type = "Moderately Negatively Skewed"
-            else:
-                skew_type = "Moderately Normal Distribution (Symmetric)"
+        elif abs_skew < 0.5:
+            direction = "Negative" if skew_val < 0 else "Positive"
+            skew_type = f"Slightly {direction}ly Skewed"
+        elif abs_skew < 1.0:
+            direction = "Negative" if skew_val < 0 else "Positive"
+            skew_type = f"Moderately {direction}ly Skewed"
         else:
-            if skew_val >= 1:
-                skew_type = "Highly Positively Skewed"
-            elif 0.5 <= skew_val < 1:
-                skew_type = "Moderately Positively Skewed"
-            else:
-                skew_type = "Moderately Normal Distribution (Symmetric)"
+            direction = "Negative" if skew_val < 0 else "Positive"
+            skew_type = f"Highly {direction}ly Skewed"
 
-        # Append the results to the lists
-        mean_list.append(mean)
-        median_list.append(median)
-        mode_list.append(mode)
-        skew_type_list.append(skew_type)
-        skew_val_list.append(skew_val)
-        kurtosis_val_list.append(kurtosis_val)
+        if kurtosis_val < -0.5:
+            kurt_type = "Platykurtic (Light-tailed)"
+        elif kurtosis_val > 0.5:
+            kurt_type = "Leptokurtic (Heavy-tailed)"
+        else:
+            kurt_type = "Mesokurtic (Normal-like)"
 
-    # Create a DataFrame to store the results
-    dist = pd.DataFrame({
-        "Column Name": col_series,
-        "Mean": mean_list,
-        "Median": median_list,
-        "Mode": mode_list,
-        "Skewness": skew_val_list,
-        "Kurtosis": kurtosis_val_list,
-        "Type of Distribution": skew_type_list
-    })
+        records.append({
+            "Column Name": col,
+            "Mean": mean,
+            "Median": median,
+            "Mode": mode,
+            "Skewness": skew_val,
+            "Kurtosis": kurtosis_val,
+            "Skewness Type": skew_type,
+            "Kurtosis Type": kurt_type,
+        })
 
-    # Manually assign specific distributions based on user-provided column names
+    dist = pd.DataFrame(records)
+
     if uniform_cols:
-        dist.loc[dist['Column Name'].isin(uniform_cols), 'Type of Distribution'] = 'Uniform Distribution'
+        mask = dist["Column Name"].isin(uniform_cols)
+        dist.loc[mask, "Skewness Type"] = "Uniform Distribution"
+        dist.loc[mask, "Kurtosis Type"] = "Platykurtic (Light-tailed)"
+
     if multimodal_cols:
-        dist.loc[dist['Column Name'].isin(multimodal_cols), 'Type of Distribution'] = 'Multi-modal Distribution'
+        dist.loc[dist["Column Name"].isin(multimodal_cols), "Skewness Type"] = "Multi-modal Distribution"
 
     return dist

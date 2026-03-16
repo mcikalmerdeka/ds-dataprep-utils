@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, PowerTransformer, QuantileTransformer, OneHotEncoder, OrdinalEncoder, TargetEncoder
+import category_encoders as ce
 from sklearn.impute import KNNImputer
 from sklearn.compose import ColumnTransformer
 from typing import List, Dict, Union, Optional, Any, Tuple
@@ -637,6 +638,7 @@ def feature_scaling(data: pd.DataFrame, scaling_config: Optional[Dict[str, Any]]
 ## Feature encoding function
 def feature_encoding(data: pd.DataFrame, ordinal_columns: Optional[List[str]] = None, 
                      nominal_columns: Optional[List[str]] = None, mean_encoding_columns: Optional[List[str]] = None,
+                     binary_columns: Optional[List[str]] = None, frequency_columns: Optional[List[str]] = None,
                      ordinal_categories: Optional[Dict[str, List[Any]]] = None, drop_first: bool = True, 
                      preserve_dtypes: bool = True, handle_unknown: str = 'error',
                      target: Optional[pd.Series] = None, encoders: Optional[Dict[str, Any]] = None,
@@ -644,9 +646,11 @@ def feature_encoding(data: pd.DataFrame, ordinal_columns: Optional[List[str]] = 
                      mean_cv: int = 5
                      ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
-    General feature encoding function supporting ordinal, one-hot, and mean encoding.
+    General feature encoding function supporting ordinal, one-hot, mean, label, and frequency encoding.
     
     Uses sklearn's TargetEncoder for mean encoding with built-in cross-fitting to prevent data leakage.
+    Label encoding for binary features (2 unique values) converts them to 0/1.
+    Frequency encoding replaces categories with their occurrence count from training data.
     
     Parameters:
     -----------
@@ -660,6 +664,13 @@ def feature_encoding(data: pd.DataFrame, ordinal_columns: Optional[List[str]] = 
         List of column names for mean encoding.
         Each category is replaced with the mean of the target variable for that category.
         Best for high-cardinality categorical features.
+    binary_columns : Optional[List[str]], optional
+        List of column names for label encoding (binary features with only 2 unique values).
+        Converts categories to 0/1 integers (e.g., 'yes'/'no' -> 1/0).
+    frequency_columns : Optional[List[str]], optional
+        List of column names for frequency encoding.
+        Each category is replaced with its frequency count from training data.
+        Best for high-cardinality categorical features where count is informative.
     ordinal_categories : Optional[Dict[str, List[Any]]], optional
         Dictionary mapping ordinal column names to their category order lists
     drop_first : bool, default=True
@@ -674,6 +685,7 @@ def feature_encoding(data: pd.DataFrame, ordinal_columns: Optional[List[str]] = 
     encoders : Optional[Dict[str, Any]], default=None
         Dictionary of pre-fitted encoders (for validation/test data).
         If provided, uses these encoders instead of fitting new ones.
+        Keys include: 'ordinal_*', 'onehot_*', 'mean_encoder', 'binary_*', 'frequency_*'
     mean_target_type : str, default='continuous'
         Type of target variable for mean encoding: 'continuous' for regression, 'binary' for classification.
     mean_smooth : Union[str, float], default='auto'
@@ -688,12 +700,14 @@ def feature_encoding(data: pd.DataFrame, ordinal_columns: Optional[List[str]] = 
         
     Examples:
     ---------
-    >>> # Fit on training data
+    >>> # Fit on training data with all encoding types
     >>> X_train_encoded, encoders = feature_encoding(
     ...     X_train,
     ...     ordinal_columns=['Class'],
     ...     nominal_columns=['BuildingType'],
     ...     mean_encoding_columns=['District'],
+    ...     binary_columns=['sales_channel'],  # Label encode binary features
+    ...     frequency_columns=['route', 'booking_origin'],  # Frequency encode high cardinality
     ...     ordinal_categories={'Class': ['Low', 'Medium', 'High']},
     ...     target=y_train
     ... )
@@ -704,6 +718,8 @@ def feature_encoding(data: pd.DataFrame, ordinal_columns: Optional[List[str]] = 
     ...     ordinal_columns=['Class'],
     ...     nominal_columns=['BuildingType'],
     ...     mean_encoding_columns=['District'],
+    ...     binary_columns=['sales_channel'],
+    ...     frequency_columns=['route', 'booking_origin'],
     ...     ordinal_categories={'Class': ['Low', 'Medium', 'High']},
     ...     encoders=encoders
     ... )
@@ -712,15 +728,17 @@ def feature_encoding(data: pd.DataFrame, ordinal_columns: Optional[List[str]] = 
     ordinal_columns = ordinal_columns or []
     nominal_columns = nominal_columns or []
     mean_encoding_columns = mean_encoding_columns or []
+    binary_columns = binary_columns or []
+    frequency_columns = frequency_columns or []
     ordinal_categories = ordinal_categories or {}
     
     # Validate inputs
-    all_encoding_cols = ordinal_columns + nominal_columns + mean_encoding_columns
+    all_encoding_cols = ordinal_columns + nominal_columns + mean_encoding_columns + binary_columns + frequency_columns
     missing_cols = [col for col in all_encoding_cols if col not in data.columns]
     if missing_cols:
         raise ValueError(f"Columns not found in dataframe: {missing_cols}")
     
-    if not ordinal_columns and not nominal_columns and not mean_encoding_columns:
+    if not ordinal_columns and not nominal_columns and not mean_encoding_columns and not binary_columns and not frequency_columns:
         return data.copy(), encoders or {}
     
     for col in ordinal_columns:
@@ -744,6 +762,36 @@ def feature_encoding(data: pd.DataFrame, ordinal_columns: Optional[List[str]] = 
     # Initialize encoder storage
     is_fitting = encoders is None
     fitted_encoders = {} if is_fitting else encoders.copy()
+    
+    # ===== STEP 0: Handle binary (label) encoding =====
+    if binary_columns:
+        if is_fitting:
+            for col in binary_columns:
+                # Validate binary (only 2 unique values)
+                unique_vals = df_preprocessed[col].dropna().unique()
+                if len(unique_vals) != 2:
+                    raise ValueError(f"Binary column '{col}' must have exactly 2 unique values, found {len(unique_vals)}: {unique_vals}")
+                
+                # Create label mapping (alphabetically first -> 0, second -> 1)
+                sorted_vals = sorted(unique_vals, key=str)
+                label_map = {sorted_vals[0]: 0, sorted_vals[1]: 1}
+                
+                # Apply encoding
+                df_preprocessed[col] = df_preprocessed[col].map(label_map)
+                
+                # Store the mapping in encoders
+                fitted_encoders[f'binary_{col}'] = {'mapping': label_map, 'sorted_values': sorted_vals}
+        else:
+            # Transform using pre-fitted encoders
+            for col in binary_columns:
+                encoder_key = f'binary_{col}'
+                if encoder_key in fitted_encoders:
+                    label_map = fitted_encoders[encoder_key]['mapping']
+                    df_preprocessed[col] = df_preprocessed[col].map(label_map)
+                    # Handle unknown values - map to NaN then fill with mode (0 or 1)
+                    if df_preprocessed[col].isna().any():
+                        print(f"Warning: Unknown values in binary column '{col}', mapping to 0")
+                        df_preprocessed[col] = df_preprocessed[col].fillna(0)
     
     # ===== STEP 1: Handle ordinal and one-hot encoding =====
     sklearn_encoding_cols = ordinal_columns + nominal_columns
@@ -851,15 +899,75 @@ def feature_encoding(data: pd.DataFrame, ordinal_columns: Optional[List[str]] = 
             if onehot_dfs:
                 df_sklearn_encoded = pd.concat([df_sklearn_encoded] + onehot_dfs, axis=1)
         
-        # Convert to numeric
-        for col in df_sklearn_encoded.columns:
+        # Convert to numeric (excluding frequency columns that will be encoded separately)
+        cols_to_convert = [col for col in df_sklearn_encoded.columns if col not in frequency_columns]
+        for col in cols_to_convert:
             df_sklearn_encoded[col] = pd.to_numeric(df_sklearn_encoded[col], errors='coerce')
     else:
         # No sklearn encoding, just exclude mean encoding columns
         cols_to_keep = [c for c in df_preprocessed.columns if c not in mean_encoding_columns + datetime_columns]
         df_sklearn_encoded = df_preprocessed[cols_to_keep].copy()
     
-    # ===== STEP 2: Handle mean encoding =====
+    # ===== STEP 2: Handle frequency encoding =====
+    # Apply frequency encoding using category_encoders.CountEncoder
+    if frequency_columns:
+        if is_fitting:
+            for col in frequency_columns:
+                # Ensure column exists and is string/object type (as expected by CountEncoder)
+                if col not in df_preprocessed.columns:
+                    raise ValueError(f"Frequency column '{col}' not found in dataframe")
+                
+                # Get source data from df_preprocessed
+                source_data = df_preprocessed[col]
+                
+                # Create and fit CountEncoder (counts occurrences, normalize=False for raw counts)
+                count_encoder = ce.CountEncoder(
+                    cols=[col],
+                    normalize=False,  # Use raw counts, not normalized frequencies
+                    handle_unknown='value',  # Return 0 for unknown categories
+                    handle_missing='value'  # Return 0 for missing values
+                )
+                
+                # Fit and transform
+                encoded_col = count_encoder.fit_transform(source_data.to_frame())
+                
+                # Apply to df_sklearn_encoded
+                if col in df_sklearn_encoded.columns:
+                    df_sklearn_encoded[col] = encoded_col[col].values
+                else:
+                    df_sklearn_encoded[col] = encoded_col[col].values
+                
+                # Store the fitted encoder
+                fitted_encoders[f'frequency_{col}'] = count_encoder
+        else:
+            # Transform using pre-fitted CountEncoders
+            for col in frequency_columns:
+                encoder_key = f'frequency_{col}'
+                if encoder_key not in fitted_encoders:
+                    print(f"Warning: Frequency encoder for '{col}' not found. Skipping.")
+                    continue
+                
+                count_encoder = fitted_encoders[encoder_key]
+                
+                # Get source data
+                if col in df_preprocessed.columns:
+                    source_data = df_preprocessed[col]
+                elif col in df_sklearn_encoded.columns:
+                    source_data = df_sklearn_encoded[col]
+                else:
+                    print(f"Warning: Frequency column '{col}' not found. Skipping.")
+                    continue
+                
+                # Transform
+                encoded_col = count_encoder.transform(source_data.to_frame())
+                
+                # Apply to df_sklearn_encoded
+                if col in df_sklearn_encoded.columns:
+                    df_sklearn_encoded[col] = encoded_col[col].values
+                else:
+                    df_sklearn_encoded[col] = encoded_col[col].values
+    
+    # ===== STEP 3: Handle mean encoding =====
     if mean_encoding_columns:
         if is_fitting:
             mean_encoder = TargetEncoder(
@@ -884,7 +992,7 @@ def feature_encoding(data: pd.DataFrame, ordinal_columns: Optional[List[str]] = 
     else:
         df_final = df_sklearn_encoded
     
-    # ===== STEP 3: Restore datetime columns and dtypes =====
+    # ===== STEP 4: Restore datetime columns and dtypes =====
     if datetime_columns:
         for col in datetime_columns:
             df_final[col] = datetime_data[col]
@@ -893,7 +1001,9 @@ def feature_encoding(data: pd.DataFrame, ordinal_columns: Optional[List[str]] = 
         all_encoded_cols = (
             ordinal_columns + 
             [col for col in df_final.columns if any(col.startswith(f'{nc}_') for nc in nominal_columns)] +
-            mean_encoding_columns
+            mean_encoding_columns +
+            binary_columns +
+            frequency_columns
         )
         
         for col in df_final.columns:
